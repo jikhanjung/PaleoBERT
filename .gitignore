@@ -1,5 +1,8 @@
 # Data directory (contains copyrighted PDFs and large files)
-data/
+# Exclude main data directory but allow tests/data
+/data/
+# But include test data
+!tests/data/
 
 # Python
 __pycache__/
