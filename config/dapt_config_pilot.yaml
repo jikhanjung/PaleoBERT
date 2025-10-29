@@ -1,0 +1,113 @@
+# DAPT Pilot Training Configuration for PaleoBERT-Cambrian
+#
+# Pilot training for pipeline validation with 308K tokens corpus.
+# This is NOT production training - it's for validating the pipeline works correctly.
+#
+# Purpose:
+#   - Test training script functionality
+#   - Validate memory usage on 11GB GPU
+#   - Verify metrics calculation
+#   - Confirm checkpoint saving/loading
+#
+# Expected results:
+#   - Training completes without errors
+#   - Loss decreases (even if not converged)
+#   - Metrics are logged correctly
+#   - Checkpoints are saved properly
+#
+# Usage:
+#   python scripts/train_dapt.py --config config/dapt_config_pilot.yaml
+
+# ============================================================================
+# Model Configuration
+# ============================================================================
+model_name_or_path: "microsoft/deberta-v3-base"
+tokenizer_path: "artifacts/tokenizer_v1"
+gradient_checkpointing: true
+
+# ============================================================================
+# Data Configuration
+# ============================================================================
+# Training data: Use all available PDFs (308K tokens total)
+train_files:
+  - "data/corpus_norm/train_all_pdfs.jsonl"
+
+# Evaluation data: Use same as training for pilot (no separate eval set yet)
+# This is OK for pipeline validation but NOT for production
+eval_files:
+  - "data/corpus_norm/train_all_pdfs.jsonl"
+
+# Maximum sequence length
+max_seq_length: 512
+
+# Number of workers for data loading
+preprocessing_num_workers: 4
+
+# ============================================================================
+# Training Configuration (Pilot Settings)
+# ============================================================================
+output_dir: "checkpoints/paleo-dapt-pilot"
+overwrite_output_dir: true
+
+# Batch configuration for pilot
+# Small batch size for quick iterations
+# Effective batch size = 4 * 8 * 1 = 32
+per_device_train_batch_size: 4
+per_device_eval_batch_size: 8
+gradient_accumulation_steps: 8
+
+# Memory optimization
+fp16: true
+
+# Optimization
+# Higher LR for faster convergence in pilot
+learning_rate: 5.0e-4
+weight_decay: 0.01
+adam_beta1: 0.9
+adam_beta2: 0.98
+adam_epsilon: 1.0e-6
+max_grad_norm: 1.0
+
+# Learning rate schedule
+lr_scheduler_type: "linear"
+warmup_steps: 50  # Short warmup for pilot
+
+# Training length - PILOT ONLY: 1 epoch with max 500 steps
+num_train_epochs: 1
+max_steps: 500  # Cap at 500 steps for quick validation
+
+# Logging - More frequent for pilot
+logging_steps: 10  # Log every 10 steps
+
+# Evaluation - Frequent evaluation for pilot
+eval_steps: 50  # Evaluate every 50 steps
+
+# Checkpointing - Less frequent for pilot
+save_steps: 100  # Save every 100 steps
+save_total_limit: 2  # Keep only 2 checkpoints
+load_best_model_at_end: true
+metric_for_best_model: "eval_loss"
+
+# ============================================================================
+# MLM Configuration
+# ============================================================================
+mlm_probability: 0.15  # Standard 15% masking rate
+
+# ============================================================================
+# Validation Configuration
+# ============================================================================
+# Domain-specific validation
+rare_token_eval: true
+test_terms_file: null  # Will auto-detect from artifacts/vocab/
+
+# Early stopping - Disabled for pilot (want to see full run)
+early_stopping_patience: 100  # Very high patience = effectively disabled
+early_stopping_threshold: 0.0001
+
+# ============================================================================
+# Miscellaneous
+# ============================================================================
+seed: 42
+
+# Resume from checkpoint (leave null for fresh training)
+resume_from_checkpoint: null

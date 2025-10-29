@@ -1,0 +1,103 @@
+# NER Training Configuration for PaleoBERT-Cambrian
+#
+# Fine-tunes DAPT model for Named Entity Recognition
+# Target entities: TAXON, STRAT, CHRONO, LOC
+#
+# Usage:
+#   python scripts/train_ner.py --config config/ner_config.yaml
+
+# ============================================================================
+# Model Configuration
+# ============================================================================
+model_name_or_path: "checkpoints/paleo-dapt-expanded"
+tokenizer_path: "artifacts/tokenizer_v1"
+
+# ============================================================================
+# Data Configuration
+# ============================================================================
+train_file: "artifacts/ner_data/train.jsonl"
+dev_file: "artifacts/ner_data/dev.jsonl"
+test_file: "artifacts/ner_data/test.jsonl"
+
+# Maximum sequence length
+max_seq_length: 384  # Shorter than DAPT for efficiency
+
+# Label list (BIO tagging)
+labels:
+  - "O"
+  - "B-TAXON"
+  - "I-TAXON"
+  - "B-STRAT"
+  - "I-STRAT"
+  - "B-CHRONO"
+  - "I-CHRONO"
+  - "B-LOC"
+  - "I-LOC"
+
+# ============================================================================
+# Training Configuration (11GB VRAM Optimized)
+# ============================================================================
+output_dir: "checkpoints/paleo-ner-v1"
+overwrite_output_dir: true
+
+# Batch configuration
+per_device_train_batch_size: 16
+per_device_eval_batch_size: 32
+gradient_accumulation_steps: 2  # Effective batch = 32
+
+# Memory optimization
+fp16: true
+gradient_checkpointing: false  # Not needed for NER (smaller memory footprint)
+
+# Optimization
+learning_rate: 2.0e-5  # Lower than DAPT (fine-tuning)
+weight_decay: 0.01
+adam_beta1: 0.9
+adam_beta2: 0.999
+adam_epsilon: 1.0e-8
+max_grad_norm: 1.0
+
+# Learning rate schedule
+lr_scheduler_type: "linear"
+warmup_ratio: 0.1  # 10% warmup
+
+# Training length
+num_train_epochs: 8
+max_steps: -1  # Use num_train_epochs
+
+# Logging
+logging_steps: 100
+logging_strategy: "steps"
+
+# Evaluation
+eval_strategy: "epoch"  # Evaluate after each epoch
+eval_steps: null
+
+# Checkpointing
+save_strategy: "epoch"
+save_steps: null
+save_total_limit: 3
+load_best_model_at_end: true
+metric_for_best_model: "eval_f1"
+greater_is_better: true
+
+# ============================================================================
+# NER-Specific Configuration
+# ============================================================================
+# Label smoothing (optional, helps with noisy auto-annotations)
+label_smoothing_factor: 0.1
+
+# Return entity level metrics
+return_entity_level_metrics: true
+
+# ============================================================================
+# Miscellaneous
+# ============================================================================
+seed: 42
+dataloader_num_workers: 4
+
+# Resume from checkpoint (leave null for fresh training)
+resume_from_checkpoint: null
+
+# Ignore mismatched sizes (for model head)
+ignore_mismatched_sizes: true

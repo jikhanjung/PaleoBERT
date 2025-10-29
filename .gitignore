@@ -4,6 +4,11 @@
 # But include test data
 !tests/data/
 
+# PDF directory (contains copyrighted source PDFs)
+/pdfs/
+*.pdf
+*.pdf:com.dropbox.attrs
+
 # Python
 __pycache__/
 *.py[cod]

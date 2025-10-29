@@ -1,0 +1,109 @@
+# DAPT Training Configuration for Expanded Corpus (945K tokens)
+#
+# This configuration is for training with the expanded corpus after pilot validation.
+# Corpus: 2,498 paragraphs, 945K tokens from 50 trilobite PDFs
+#
+# Key differences from pilot:
+#   - Lower learning rate (2e-4 vs 5e-4)
+#   - More epochs (3 vs max_steps=500)
+#   - Larger batch size (8 vs 4)
+#   - Production hyperparameters
+#
+# Usage:
+#   python scripts/train_dapt.py --config config/dapt_config_expanded.yaml
+
+# ============================================================================
+# Model Configuration
+# ============================================================================
+model_name_or_path: "microsoft/deberta-v3-base"
+tokenizer_path: "artifacts/tokenizer_v1"
+gradient_checkpointing: true
+
+# ============================================================================
+# Data Configuration
+# ============================================================================
+# Training data: All 50 PDFs (945K tokens)
+train_files:
+  - "data/corpus_norm/train_all_pdfs.jsonl"
+
+# Evaluation data: Same as training for now
+# TODO: Create proper train/eval split when corpus is larger
+eval_files:
+  - "data/corpus_norm/train_all_pdfs.jsonl"
+
+# Maximum sequence length
+max_seq_length: 512
+
+# Number of workers for data loading
+preprocessing_num_workers: 4
+
+# ============================================================================
+# Training Configuration (11GB VRAM Optimized)
+# ============================================================================
+output_dir: "checkpoints/paleo-dapt-expanded"
+overwrite_output_dir: true
+
+# Batch configuration
+# Effective batch size = 8 * 16 * 1 = 128
+per_device_train_batch_size: 8
+per_device_eval_batch_size: 16
+gradient_accumulation_steps: 16
+
+# Memory optimization
+fp16: true
+
+# Optimization - Production settings
+learning_rate: 2.0e-4  # Lower than pilot for stability
+weight_decay: 0.01
+adam_beta1: 0.9
+adam_beta2: 0.98
+adam_epsilon: 1.0e-6
+max_grad_norm: 1.0
+
+# Learning rate schedule
+lr_scheduler_type: "linear"
+warmup_steps: 500  # ~10% of expected steps
+
+# Training length
+# With 2,498 examples and batch 128:
+#   1 epoch ≈ 20 steps
+#   3 epochs ≈ 60 steps
+# We'll train for 3 epochs to see multiple passes
+num_train_epochs: 3
+max_steps: -1  # Use num_train_epochs
+
+# Logging - More frequent than pilot
+logging_steps: 5  # Log every 5 steps
+
+# Evaluation - Check progress regularly
+eval_steps: 10  # Evaluate every 10 steps
+
+# Checkpointing
+save_steps: 20  # Save every 20 steps
+save_total_limit: 3  # Keep top-3 checkpoints
+load_best_model_at_end: true
+metric_for_best_model: "eval_loss"
+
+# ============================================================================
+# MLM Configuration
+# ============================================================================
+mlm_probability: 0.15  # Standard 15% masking rate
+
+# ============================================================================
+# Validation Configuration
+# ============================================================================
+# Domain-specific validation
+rare_token_eval: true
+test_terms_file: null  # Will auto-detect from artifacts/vocab/
+
+# Early stopping - Monitor for overfitting
+early_stopping_patience: 10
+early_stopping_threshold: 0.001
+
+# ============================================================================
+# Miscellaneous
+# ============================================================================
+seed: 42
+
+# Resume from checkpoint (leave null for fresh training)
+resume_from_checkpoint: null

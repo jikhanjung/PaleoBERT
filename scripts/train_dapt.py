@@ -474,7 +474,7 @@ def initialize_model_and_tokenizer(config: DAPTConfig) -> Tuple:
     # Enable gradient checkpointing
     if config.gradient_checkpointing:
         logger.info("  Enabling gradient checkpointing...")
-        model.gradient_checkpointing_enable()
+        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
 
     logger.info("Model and tokenizer initialized successfully!")
     logger.info("=" * 80)
@@ -856,7 +856,7 @@ def setup_training_args(config: DAPTConfig) -> TrainingArguments:
         logging_dir=os.path.join(config.output_dir, "logs"),
         logging_steps=config.logging_steps,
         eval_steps=config.eval_steps,
-        evaluation_strategy="steps",
+        eval_strategy="steps",  # Changed from evaluation_strategy in transformers 4.57+
         save_steps=config.save_steps,
         save_strategy="steps",
         save_total_limit=config.save_total_limit,
