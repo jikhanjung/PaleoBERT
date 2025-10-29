@@ -8,7 +8,7 @@ This directory contains training scripts for the PaleoBERT-Cambrian v1.0 model.
 
 Performs Masked Language Modeling (MLM) on Cambrian paleontology literature to adapt DeBERTa-v3-base to the domain.
 
-**Status:** ✅ Phase 1 Complete (Core training loop implemented)
+**Status:** ✅ Phase 1 & 2 Complete (Core training + validation metrics implemented)
 
 **Prerequisites:**
 - P01: Extended tokenizer at `artifacts/tokenizer_v1/` (run `build_tokenizer.py` first)
@@ -50,8 +50,15 @@ python scripts/train_dapt.py \
 - ✅ 11GB VRAM optimization (fp16 + gradient checkpointing)
 - ✅ Checkpoint save/resume support
 - ✅ TensorBoard logging
-- ⚠️ Domain-specific metrics (rare-token PPL) - Coming in Phase 2
-- ⚠️ Early stopping - Coming in Phase 2
+- ✅ **Domain-specific metrics** - Phase 2 ✨ NEW
+  - Rare-token perplexity (measures domain vocabulary learning)
+  - Fragmentation rate (tracks tokenization quality)
+- ✅ **Early stopping** - Phase 2 ✨ NEW
+  - Configurable patience and improvement threshold
+  - Monitors eval_loss or rare-token PPL
+- ✅ **Custom evaluation callbacks** - Phase 2 ✨ NEW
+  - Automated domain-specific validation
+  - TensorBoard integration
 
 **Expected Performance:**
 - Throughput: 3.5-5.5 it/s @ seq512, batch=8, GA=16
@@ -234,12 +241,14 @@ Open browser to `http://localhost:6006`
 - ✅ Sample test corpus
 - ✅ Documentation
 
-### Phase 2: Validation & Metrics (Next)
+### Phase 2: Validation & Metrics ✅ COMPLETE
 
-- ⚠️ Rare-token perplexity metric
-- ⚠️ Custom evaluation callback
-- ⚠️ Early stopping logic
-- ⚠️ Enhanced checkpoint management
+- ✅ Rare-token perplexity metric (RareTokenMetrics class)
+- ✅ Custom evaluation callback (DAPTEvaluationCallback)
+- ✅ Early stopping logic (DAPTEarlyStoppingCallback)
+- ✅ Fragmentation rate tracking
+- ✅ Integration with main training loop
+- ✅ Test suite (tests/test_dapt_phase2.py)
 
 ### Phase 3: Testing & Refinement (Coming Soon)
 

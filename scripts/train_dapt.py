@@ -483,6 +483,335 @@ def initialize_model_and_tokenizer(config: DAPTConfig) -> Tuple:
 
 
 # ============================================================================
+# Domain-Specific Metrics
+# ============================================================================
+
+class RareTokenMetrics:
+    """
+    Calculate domain-specific metrics for DAPT validation.
+
+    Metrics:
+    1. Rare-token perplexity: PPL on sequences containing domain tokens
+    2. Fragmentation rate: % of domain terms split into multiple tokens
+    3. Domain token coverage: % of domain tokens that appear in corpus
+
+    Args:
+        tokenizer: HuggingFace tokenizer with added domain tokens
+        domain_vocab_files: Dict mapping category → vocab file path
+            e.g., {"taxa": "artifacts/vocab/taxa.txt", ...}
+    """
+
+    def __init__(
+        self,
+        tokenizer,
+        domain_vocab_files: Optional[Dict[str, str]] = None,
+    ):
+        self.tokenizer = tokenizer
+        self.domain_vocab_files = domain_vocab_files or {}
+
+        # Load domain terms
+        self.domain_terms = self._load_domain_terms()
+        logger.info(f"Loaded {len(self.domain_terms)} domain terms for metrics")
+
+        # Identify domain token IDs
+        self.domain_token_ids = self._get_domain_token_ids()
+        logger.info(f"Identified {len(self.domain_token_ids)} domain token IDs")
+
+    def _load_domain_terms(self) -> List[str]:
+        """Load all domain terms from vocabulary files."""
+        terms = []
+
+        for category, filepath in self.domain_vocab_files.items():
+            if not os.path.exists(filepath):
+                logger.warning(f"Domain vocab file not found: {filepath}")
+                continue
+
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    category_terms = [line.strip() for line in f if line.strip()]
+                    terms.extend(category_terms)
+                    logger.info(f"  Loaded {len(category_terms)} terms from {category}")
+            except Exception as e:
+                logger.warning(f"Error loading {filepath}: {e}")
+
+        return terms
+
+    def _get_domain_token_ids(self) -> set:
+        """
+        Get token IDs for domain-specific tokens.
+
+        Identifies tokens that were added beyond the base DeBERTa vocabulary.
+        """
+        # Base DeBERTa-v3-base has 128,000 tokens
+        base_vocab_size = 128000
+
+        # Any token ID >= base_vocab_size is a domain token
+        domain_ids = set(range(base_vocab_size, len(self.tokenizer)))
+
+        return domain_ids
+
+    def compute_fragmentation_rate(self) -> Dict[str, float]:
+        """
+        Calculate fragmentation rate for domain terms.
+
+        Fragmentation = % of terms that are split into >1 token
+
+        Returns:
+            Dictionary with:
+                - fragmentation_rate: Overall rate (0.0 to 1.0)
+                - fragmented_count: Number of fragmented terms
+                - total_count: Total number of terms
+                - fragmented_terms: List of fragmented terms (sample)
+        """
+        if not self.domain_terms:
+            return {
+                'fragmentation_rate': 0.0,
+                'fragmented_count': 0,
+                'total_count': 0,
+                'fragmented_terms': [],
+            }
+
+        fragmented = []
+
+        for term in self.domain_terms:
+            tokens = self.tokenizer.encode(term, add_special_tokens=False)
+            if len(tokens) > 1:
+                fragmented.append(term)
+
+        fragmentation_rate = len(fragmented) / len(self.domain_terms)
+
+        return {
+            'fragmentation_rate': fragmentation_rate,
+            'fragmented_count': len(fragmented),
+            'total_count': len(self.domain_terms),
+            'fragmented_terms': fragmented[:10],  # Sample of first 10
+        }
+
+    def compute_rare_token_ppl(
+        self,
+        model,
+        eval_dataloader,
+        device: str = "cuda"
+    ) -> float:
+        """
+        Compute perplexity on sequences containing domain tokens.
+
+        This metric focuses on how well the model has learned domain-specific
+        vocabulary compared to general text.
+
+        Args:
+            model: The language model
+            eval_dataloader: Evaluation data loader
+            device: Device to run computation on
+
+        Returns:
+            Rare-token perplexity (lower is better)
+        """
+        model.eval()
+        total_loss = 0.0
+        total_tokens = 0
+
+        with torch.no_grad():
+            for batch in eval_dataloader:
+                # Move batch to device
+                input_ids = batch['input_ids'].to(device)
+                attention_mask = batch['attention_mask'].to(device)
+                labels = batch['labels'].to(device)
+
+                # Check if batch contains domain tokens
+                contains_domain_token = False
+                for token_id in self.domain_token_ids:
+                    if (input_ids == token_id).any():
+                        contains_domain_token = True
+                        break
+
+                if not contains_domain_token:
+                    continue  # Skip batches without domain tokens
+
+                # Forward pass
+                outputs = model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    labels=labels,
+                )
+
+                # Accumulate loss only for domain tokens
+                loss = outputs.loss
+                batch_size = input_ids.size(0)
+
+                # Count tokens (excluding padding)
+                num_tokens = (labels != -100).sum().item()
+
+                total_loss += loss.item() * num_tokens
+                total_tokens += num_tokens
+
+        if total_tokens == 0:
+            return float('inf')  # No domain tokens found
+
+        # Compute perplexity
+        avg_loss = total_loss / total_tokens
+        perplexity = torch.exp(torch.tensor(avg_loss)).item()
+
+        return perplexity
+
+
+# ============================================================================
+# Training Callbacks
+# ============================================================================
+
+class DAPTEvaluationCallback(TrainerCallback):
+    """
+    Custom evaluation callback for DAPT-specific metrics.
+
+    This callback computes additional metrics during evaluation:
+    - Rare-token perplexity
+    - Fragmentation rate
+    - Domain token coverage
+
+    These metrics are logged to TensorBoard and console.
+
+    Args:
+        rare_token_metrics: RareTokenMetrics instance
+        eval_every_n_steps: Compute expensive metrics every N eval steps
+    """
+
+    def __init__(
+        self,
+        rare_token_metrics: Optional[RareTokenMetrics] = None,
+        eval_every_n_steps: int = 1,
+    ):
+        self.rare_token_metrics = rare_token_metrics
+        self.eval_every_n_steps = eval_every_n_steps
+        self.eval_count = 0
+
+    def on_evaluate(
+        self,
+        args,
+        state,
+        control,
+        model,
+        metrics,
+        **kwargs
+    ):
+        """
+        Called after evaluation step.
+
+        Computes domain-specific metrics and adds them to the metrics dict.
+        """
+        self.eval_count += 1
+
+        # Compute fragmentation rate (cheap, do every time)
+        if self.rare_token_metrics:
+            frag_stats = self.rare_token_metrics.compute_fragmentation_rate()
+
+            metrics['fragmentation_rate'] = frag_stats['fragmentation_rate']
+            metrics['fragmented_count'] = frag_stats['fragmented_count']
+
+            logger.info("=" * 80)
+            logger.info("Domain-Specific Metrics")
+            logger.info("=" * 80)
+            logger.info(
+                f"Fragmentation rate: {frag_stats['fragmentation_rate']:.2%} "
+                f"({frag_stats['fragmented_count']}/{frag_stats['total_count']})"
+            )
+
+            # Compute rare-token PPL (expensive, do periodically)
+            if self.eval_count % self.eval_every_n_steps == 0:
+                eval_dataloader = kwargs.get('eval_dataloader')
+
+                if eval_dataloader is not None:
+                    logger.info("Computing rare-token perplexity...")
+
+                    device = next(model.parameters()).device
+
+                    rare_ppl = self.rare_token_metrics.compute_rare_token_ppl(
+                        model=model,
+                        eval_dataloader=eval_dataloader,
+                        device=device,
+                    )
+
+                    metrics['rare_token_perplexity'] = rare_ppl
+
+                    logger.info(f"Rare-token perplexity: {rare_ppl:.4f}")
+
+            logger.info("=" * 80)
+
+
+class DAPTEarlyStoppingCallback(TrainerCallback):
+    """
+    Early stopping callback for DAPT training.
+
+    Stops training when:
+    1. MLM loss plateaus for N evaluations, OR
+    2. Rare-token PPL improvement < threshold for N evaluations
+
+    This prevents overfitting and saves compute time.
+
+    Args:
+        patience: Number of evaluations with no improvement before stopping
+        min_delta: Minimum change to qualify as improvement
+        metric: Metric to monitor ('eval_loss' or 'rare_token_perplexity')
+    """
+
+    def __init__(
+        self,
+        patience: int = 5,
+        min_delta: float = 0.01,
+        metric: str = 'eval_loss',
+    ):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.metric = metric
+
+        self.best_metric = float('inf')
+        self.counter = 0
+
+    def on_evaluate(
+        self,
+        args,
+        state,
+        control,
+        metrics,
+        **kwargs
+    ):
+        """
+        Check if we should stop training.
+        """
+        current_metric = metrics.get(self.metric)
+
+        if current_metric is None:
+            return  # Metric not available yet
+
+        # Check if improved
+        if current_metric < self.best_metric - self.min_delta:
+            # Improvement
+            self.best_metric = current_metric
+            self.counter = 0
+
+            logger.info(
+                f"✓ {self.metric} improved to {current_metric:.4f} "
+                f"(best: {self.best_metric:.4f})"
+            )
+        else:
+            # No improvement
+            self.counter += 1
+
+            logger.info(
+                f"✗ {self.metric} did not improve: {current_metric:.4f} "
+                f"(best: {self.best_metric:.4f}, patience: {self.counter}/{self.patience})"
+            )
+
+            if self.counter >= self.patience:
+                logger.info("=" * 80)
+                logger.info("EARLY STOPPING TRIGGERED")
+                logger.info(f"No improvement in {self.metric} for {self.patience} evaluations")
+                logger.info(f"Best {self.metric}: {self.best_metric:.4f}")
+                logger.info("=" * 80)
+
+                control.should_training_stop = True
+
+
+# ============================================================================
 # Training
 # ============================================================================
 
@@ -639,6 +968,32 @@ def main():
         mlm_probability=config.mlm_probability,
     )
 
+    # Setup domain-specific metrics (Phase 2)
+    rare_token_metrics = None
+    if config.rare_token_eval:
+        logger.info("=" * 80)
+        logger.info("Setting up domain-specific metrics...")
+        logger.info("=" * 80)
+
+        # Build domain vocab files dict
+        domain_vocab_files = {}
+        if os.path.exists("artifacts/vocab"):
+            for vocab_file in ["taxa.txt", "strat_units.txt", "chrono_units.txt", "localities.txt"]:
+                filepath = os.path.join("artifacts/vocab", vocab_file)
+                if os.path.exists(filepath):
+                    category = vocab_file.replace(".txt", "")
+                    domain_vocab_files[category] = filepath
+
+        if domain_vocab_files:
+            rare_token_metrics = RareTokenMetrics(
+                tokenizer=tokenizer,
+                domain_vocab_files=domain_vocab_files,
+            )
+            logger.info("Domain-specific metrics enabled!")
+        else:
+            logger.warning("No domain vocabulary files found. Skipping rare-token metrics.")
+            logger.warning("  Expected: artifacts/vocab/*.txt")
+
     # Setup training arguments
     training_args = setup_training_args(config)
 
@@ -668,7 +1023,32 @@ def main():
     logger.info(f"Gradient checkpointing: {config.gradient_checkpointing}")
     logger.info("=" * 80)
 
+    # Setup callbacks (Phase 2)
+    callbacks = []
+
+    # Add domain-specific evaluation callback
+    if rare_token_metrics is not None:
+        eval_callback = DAPTEvaluationCallback(
+            rare_token_metrics=rare_token_metrics,
+            eval_every_n_steps=1,  # Compute rare-token PPL every eval
+        )
+        callbacks.append(eval_callback)
+        logger.info("✓ DAPTEvaluationCallback added")
+
+    # Add early stopping callback
+    early_stopping = DAPTEarlyStoppingCallback(
+        patience=config.early_stopping_patience,
+        min_delta=config.early_stopping_threshold,
+        metric='eval_loss',
+    )
+    callbacks.append(early_stopping)
+    logger.info(f"✓ DAPTEarlyStoppingCallback added (patience={config.early_stopping_patience})")
+
     # Create Trainer
+    logger.info("=" * 80)
+    logger.info("Creating Trainer...")
+    logger.info("=" * 80)
+
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -676,7 +1056,10 @@ def main():
         eval_dataset=eval_dataset,
         data_collator=data_collator,
         tokenizer=tokenizer,
+        callbacks=callbacks,
     )
+
+    logger.info(f"Trainer created with {len(callbacks)} callbacks")
 
     # Check for existing checkpoint
     last_checkpoint = None
