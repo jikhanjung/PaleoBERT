@@ -1,18 +1,26 @@
-# PaleoBERT (DeBERTa‑DAPT) — Training Design Spec
+# PaleoBERT-Cambrian v1.0 — Training Design Spec
 
-**Scope:** End‑to‑end plan to build **PaleoBERT** using **DeBERTa‑v3‑base** as the backbone with **Domain‑Adaptive Pretraining (DAPT)**, followed by **NER** and **RE** fine‑tuning, and culminating in an integrated release.  
-**Audience:** ML engineer / researcher operating on a single‑GPU workstation (e.g., RTX 2080 Ti, 11 GB).  
+**Model:** PaleoBERT-Cambrian (first model in the PaleoBERT Family)
+**Scope:** End‑to‑end plan to build **PaleoBERT-Cambrian v1.0** using **DeBERTa‑v3‑base** as the backbone with **Domain‑Adaptive Pretraining (DAPT)**, followed by **NER** and **RE** fine‑tuning, and culminating in an integrated release.
+**Domain Coverage:** Cambrian Period (541-485 Ma), focusing on trilobites and major invertebrate groups
+**Audience:** ML engineer / researcher operating on a single‑GPU workstation (e.g., RTX 2080 Ti, 11 GB).
 **Output artifacts:** DeBERTa tokenizer w/ added tokens, DAPT checkpoint, NER/RE heads, inference pipeline, evaluation reports, and a versioned release.
+
+**Note:** This document describes the first model in the PaleoBERT Family. See `FAMILY_ARCHITECTURE.md` for the overall family strategy and future models (PaleoBERT-Ordovician, PaleoBERT-Mesozoic, etc.).
 
 ---
 
 ## 0) Assumptions & Goals
 
-- **Primary goal:** Extract structured paleontology facts from captions/paragraphs: entities (**taxa, strat units, chrono units, localities**) and relations (**taxon→strat**, **taxon→locality**, **strat→chrono**, etc.).
+- **Primary goal:** Extract structured paleontology facts from Cambrian literature (captions/paragraphs): entities (**taxa, strat units, chrono units, localities**) and relations (**taxon→strat**, **taxon→locality**, **strat→chrono**, etc.).
+- **Temporal scope:** Cambrian Period (541-485 Ma), covering Terreneuvian, Series 2, Miaolingian, and Furongian epochs.
+- **Taxonomic scope:** Trilobites (primary), Brachiopods, Archaeocyaths, Hyoliths, early echinoderms, and other Cambrian Explosion fauna.
+- **Geographic scope:** Global, with emphasis on Laurentia (North America), South China, Baltica, and Avalonia.
+- **Target vocabulary:** ~400 domain-specific tokens (taxa, formations, chronostratigraphic units, localities).
 - **Hardware baseline:** 1× **RTX 2080 Ti (11 GB VRAM)**, 64–128 GB RAM, fast NVMe.
 - **Backbone:** `microsoft/deberta-v3-base` (Hugging Face ID).
-- **Tokenizer:** fast tokenizer; **added tokens** for domain vocabulary (taxa/strat/chrono/localities).
-- **Text normalization:** internal normalized view (e.g., `Stage_10`, `Series_2`), with **align maps** to original raw text for round‑trip recovery.
+- **Tokenizer:** fast tokenizer; **added tokens** for Cambrian domain vocabulary.
+- **Text normalization:** internal normalized view (e.g., `Stage_10`, `Series_2`, `Wheeler_Formation`), with **align maps** to original raw text for round‑trip recovery.
 - **Reproducibility:** Seeded runs, DVC/Git‑LFS for checkpoints & corpora manifests, explicit versioning.
 
 ---
@@ -20,26 +28,36 @@
 ## 1) Data Design
 
 ### 1.1 Corpora (DAPT)
-- **Sources (examples):**
-  - Open‑access paleontology papers (captions + methods + locality/strat sections).
-  - Geological bulletins/reports (formation/member descriptions).
-  - Museum specimen notes (where legally permitted).
-- **Target size:** **~100M tokens** (≈ 8–12 GB cleaned text). Scales to 200M if time allows.
+- **Sources (Cambrian-specific):**
+  - Open‑access Cambrian paleontology papers (captions + methods + locality/strat sections).
+  - Geological bulletins/reports focusing on Cambrian formations (Wheeler, Marjum, Burgess, Chengjiang, etc.).
+  - Museum specimen notes for Cambrian fossils (where legally permitted).
+  - Cambrian Explosion literature, Burgess Shale fauna descriptions.
+- **Target size:** **~40-50M tokens** (≈ 3–5 GB cleaned text) of Cambrian-focused literature.
+  - Rationale: Focused corpus yields better domain adaptation than diluted general paleontology corpus.
+  - Smaller size compensates with higher domain relevance.
 - **Segmentation:** sentence‑ or caption‑level; keep **document boundaries** (for shuffling) and **pub_id/cap_id** metadata.
 - **Cleaning:**
   - OCR fixes (ligatures, dehyphenation at line breaks).
   - Unicode normalization (`NFKC`), collapse multiple spaces.
   - Strip references/tables when noisy; retain figure/caption blocks.
-- **Normalization (optional but recommended):**
-  - `Stage 10 / Stage-10 / Stage X` → `Stage_10` (Roman→Arabic).
-  - `Series 2` → `Series_2`.
-  - `Cambrian Stage 10` → `Cambrian_Stage_10` (optionally).
+- **Normalization (required for Cambrian units):**
+  - `Stage 10 / Stage-10` → `Stage_10` (Roman→Arabic).
+  - `Series 2` → `Series_2`, `Series 3` → `Series_3`.
+  - `Cambrian Stage 10` → `Cambrian_Stage_10`.
+  - `Wheeler Formation` → `Wheeler_Formation`.
   - Keep **raw_text** + **norm_text** + **align_map** (char‑level index mapping).
 
-### 1.2 Added Tokens
+### 1.2 Added Tokens (Cambrian-specific)
 - Build lists: `taxa.txt`, `strat_units.txt`, `chrono_units.txt`, `localities.txt`.
-- **Examples:** `Asaphiscus`, `Olenellus`, `Paibian`, `Jiangshanian`, `Shackleton`, `Limestone`, `Formation`, `Dyer`, `Member`, `Holyoake`, `Transantarctic`, `Series_2`, `Stage_10`, etc.
+- **Target:** ~400 tokens total, covering Cambrian domain.
+- **Examples by category:**
+  - **Taxa (150-200):** `Olenellus`, `Asaphiscus`, `Elrathia`, `Paradoxides`, `Peronopsis`, `Agnostida`, `Redlichiida`, `Ptychopariida`, `Olenellus_wheeleri`, `Elrathia_kingii`, etc.
+  - **Strat Units (80-100):** `Wheeler_Formation`, `Marjum_Formation`, `Burgess_Shale`, `Spence_Shale`, `Bright_Angel_Formation`, `Chengjiang_Formation`, `Kaili_Formation`, `Upper_Member`, `Middle_Member`, etc.
+  - **Chrono Units (30-40):** `Cambrian_Stage_10`, `Cambrian_Stage_9`, `Stage_10`, `Series_2`, `Series_3`, `Terreneuvian`, `Miaolingian`, `Furongian`, `Paibian`, `Guzhangian`, `Drumian`, `Wuliuan`, `Jiangshanian`, etc.
+  - **Localities (100-150):** `House_Range`, `Wellsville_Mountains`, `Drum_Mountains`, `Yoho_National_Park`, `Walcott_Quarry`, `Chengjiang`, `Balang`, `Yunnan`, `British_Columbia`, `Laurentia`, `South_China`, etc.
 - Add via `tokenizer.add_tokens(list)`; then `model.resize_token_embeddings(len(tokenizer))` before DAPT.
+- **Selection criteria:** Frequency-based from Cambrian literature (see `PROJECT_SCOPE.md` for rationale).
 
 ### 1.3 Labeled Data (Fine‑tuning)
 - **NER**: 5k–20k sentences with BIO tags for `TAXON`, `STRAT`, `CHRONO`, `LOC`.
@@ -164,17 +182,23 @@ tok.save_pretrained("artifacts/tokenizer_v1/")
 ## 6) Versioning & Release
 
 ### 6.1 Version IDs
-- `paleo-deberta-tokenizer-v1`
-- `paleo-deberta-dapt-v1` (ckpt SHA & DVC hash)
-- `paleo-ner-v1`, `paleo-re-v1`
-- `paleo-pipeline-v1`
+- `paleobert-cambrian-tokenizer-v1` (or `tokenizer_cambrian_v1`)
+- `paleobert-cambrian-dapt-v1` (ckpt SHA & DVC hash)
+- `paleobert-cambrian-ner-v1`, `paleobert-cambrian-re-v1`
+- `paleobert-cambrian-pipeline-v1`
+- **Note:** "cambrian" prefix distinguishes from future models (ordovician, mesozoic, etc.)
 
 ### 6.2 Model Card (template)
-- **Intended use:** paleontology entity/relationship extraction.
-- **Training data:** overview + licenses (no raw copyrighted text stored).
-- **Added tokens:** counts per category (no proprietary lists unless permitted).
-- **Limitations:** OCR noise sensitivity; ambiguous locality disambiguation.
-- **Ethics & Safety:** academic research context, not medical or legal advice.
+- **Intended use:** Cambrian paleontology entity/relationship extraction from scientific literature.
+- **Domain coverage:** Cambrian Period (541-485 Ma), trilobites and major invertebrate groups.
+- **Training data:** Cambrian-focused literature (40-50M tokens) + licenses (no raw copyrighted text stored).
+- **Added tokens:** ~400 Cambrian-specific terms (taxa, formations, chronostratigraphy, localities).
+- **Limitations:**
+  - Optimized for Cambrian; may underperform on other periods.
+  - OCR noise sensitivity in older publications.
+  - Ambiguous locality disambiguation (especially for common geographic names).
+- **Ethics & Safety:** Academic research context, not medical or legal advice.
+- **Future work:** Part of PaleoBERT Family; see other period-specific models (Ordovician, Mesozoic, etc.).
 
 ### 6.3 Deliverables
 - `artifacts/tokenizer_v1/` (added tokens + config)

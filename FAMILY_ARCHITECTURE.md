@@ -434,6 +434,344 @@ SciBERT tried to cover "all science":
 
 ---
 
+## Router Architecture (Phase 3+)
+
+### Motivation
+
+Once multiple models exist (Cambrian, Ordovician, Mesozoic, etc.), users need a way to automatically select the appropriate model for their text. A **Router** system provides intelligent model selection based on input text analysis.
+
+### Router Concept
+
+```
+                    ┌─────────────┐
+User Input Text →   │   Router    │  (Automatic classifier)
+"Olenellus from     │  Classifier │
+ Wheeler Fm..."     └─────────────┘
+                           ↓
+                    Analyzes text:
+                    - Detects period keywords
+                    - Identifies taxonomic groups
+                    - Recognizes formations
+                           ↓
+              ┌────────────┼────────────┐
+              ↓            ↓            ↓
+      ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+      │PaleoBERT-   │ │PaleoBERT-   │ │PaleoBERT-   │
+      │Cambrian     │ │Ordovician   │ │Mesozoic     │
+      └─────────────┘ └─────────────┘ └─────────────┘
+              ↓
+        NER + RE Results
+```
+
+### Implementation Options
+
+#### Option 1: Keyword-Based Router (Simple) ✅
+
+**Best for:** Initial implementation (2-3 models)
+
+```python
+class KeywordRouter:
+    """Simple keyword matching for model selection"""
+
+    def __init__(self):
+        self.period_keywords = {
+            "cambrian": [
+                "Cambrian", "Olenellus", "Burgess", "Wheeler",
+                "Stage_10", "Terreneuvian", "Asaphiscus", "Elrathia"
+            ],
+            "ordovician": [
+                "Ordovician", "Graptolites", "Crinoid", "Cincinnatian",
+                "Tremadocian", "Caradoc"
+            ],
+            "mesozoic-terrestrial": [
+                "Tyrannosaurus", "Cretaceous", "Jurassic", "Hell_Creek",
+                "Morrison", "Dinosaur", "Pterosaur"
+            ],
+        }
+
+    def route(self, text):
+        """Score each model by keyword matches"""
+        scores = {}
+        for period, keywords in self.period_keywords.items():
+            score = sum(1 for kw in keywords if kw in text)
+            scores[period] = score
+
+        # Select model with highest score
+        if max(scores.values()) == 0:
+            # No keywords found - use default
+            return "cambrian"  # or prompt user
+
+        best_period = max(scores, key=scores.get)
+        return self.load_model(best_period)
+
+    def extract(self, text):
+        """Route to appropriate model and extract"""
+        model = self.route(text)
+        return model.extract(text)
+```
+
+**Pros:**
+- Fast (~1ms routing overhead)
+- Simple to implement
+- Explainable (can show which keywords matched)
+- Easy to maintain
+
+**Cons:**
+- Brittle on edge cases
+- Requires manual keyword curation
+- May fail on ambiguous text
+
+**Accuracy:** ~85-90% for clear cases
+
+---
+
+#### Option 2: ML-Based Router (Advanced) 🎯
+
+**Best for:** 4+ models, production deployment
+
+```python
+class MLRouter:
+    """Learned classifier for model selection"""
+
+    def __init__(self):
+        # Small BERT classifier (multi-class)
+        # Input: text (first 200-300 tokens)
+        # Output: model ID (0-7 for 8 models)
+        self.classifier = AutoModelForSequenceClassification.from_pretrained(
+            "paleobert-router-v1",
+            num_labels=8  # Number of models in family
+        )
+        self.tokenizer = AutoTokenizer.from_pretrained("paleobert-router-v1")
+
+    def route(self, text):
+        """Classify text to select appropriate model"""
+        # Take first 512 tokens for classification
+        inputs = self.tokenizer(text[:2000], return_tensors="pt", truncation=True)
+
+        # Classify
+        with torch.no_grad():
+            outputs = self.classifier(**inputs)
+            logits = outputs.logits
+
+        # Get model with highest confidence
+        model_id = logits.argmax().item()
+        confidence = torch.softmax(logits, dim=1).max().item()
+
+        models = ["cambrian", "ordovician", "silurian-devonian",
+                  "carboniferous", "mesozoic-marine", "mesozoic-terrestrial",
+                  "cenozoic-mammals", "plants"]
+
+        selected_model = models[model_id]
+
+        # Log routing decision
+        print(f"Router selected: {selected_model} (confidence: {confidence:.2f})")
+
+        return self.load_model(selected_model)
+```
+
+**Training Data:**
+
+```python
+# Collect training samples from each model's DAPT corpus
+training_data = []
+
+# Cambrian samples
+for doc in cambrian_corpus.sample(1000):
+    training_data.append((doc.text[:500], "cambrian"))
+
+# Ordovician samples
+for doc in ordovician_corpus.sample(1000):
+    training_data.append((doc.text[:500], "ordovician"))
+
+# ... for each model
+
+# Train small classifier
+trainer.train(training_data)
+```
+
+**Pros:**
+- High accuracy (~95%+)
+- Learns complex patterns
+- Handles ambiguous cases
+- Improves with more data
+
+**Cons:**
+- Requires training data
+- Additional model to maintain
+- Slightly slower (~10-50ms routing)
+
+**Accuracy:** ~95-98%
+
+---
+
+#### Option 3: Ensemble Router (Maximum Accuracy) 🚀
+
+**Best for:** Critical applications, research benchmarking
+
+```python
+class EnsembleRouter:
+    """Run all models, select best by confidence"""
+
+    def __init__(self):
+        self.models = {
+            "cambrian": load_model("paleobert-cambrian-v1"),
+            "ordovician": load_model("paleobert-ordovician-v1"),
+            "mesozoic-terrestrial": load_model("paleobert-mesozoic-terrestrial-v1"),
+            # ... load all available models
+        }
+
+    def route_and_extract(self, text):
+        """Run all models in parallel, return best result"""
+        results = {}
+
+        # Run all models (can be parallelized)
+        with ThreadPoolExecutor(max_workers=len(self.models)) as executor:
+            futures = {
+                executor.submit(model.extract, text): name
+                for name, model in self.models.items()
+            }
+
+            for future in as_completed(futures):
+                model_name = futures[future]
+                result = future.result()
+                results[model_name] = result
+
+        # Select result with highest average confidence
+        best_model = max(
+            results.keys(),
+            key=lambda m: results[m].get('avg_confidence', 0)
+        )
+
+        print(f"Ensemble selected: {best_model}")
+        return results[best_model]
+```
+
+**Pros:**
+- Maximum accuracy (~99%+)
+- No routing errors (all models tried)
+- Confidence-based selection
+- Handles all edge cases
+
+**Cons:**
+- Slow (N× inference time)
+- High resource usage (all models in memory)
+- Expensive for batch processing
+
+**Accuracy:** ~99%+ (best result from N models)
+
+---
+
+### Comparison Matrix
+
+| Feature | Keyword | ML-Based | Ensemble |
+|---------|---------|----------|----------|
+| **Accuracy** | ~85-90% | ~95-98% | ~99% |
+| **Speed** | ~1ms | ~10-50ms | ~N×inference |
+| **Resource** | Minimal | Low | High |
+| **Maintenance** | Manual | Automatic | Minimal |
+| **Complexity** | Simple | Medium | Complex |
+| **Best for** | 2-3 models | 4+ models | Benchmarks |
+
+---
+
+### Development Roadmap
+
+#### Phase 1 (v1.0): No Router
+
+```
+PaleoBERT-Cambrian only
+└─ Users explicitly load: load_model("cambrian")
+```
+
+#### Phase 2 (v2.0): Simple Keyword Router
+
+```
+2-3 models available (Cambrian, Ordovician)
+└─ Keyword-based router
+└─ Users can use: PaleoBERT().extract(text)  # auto-routes
+```
+
+#### Phase 3 (v3.0): ML-Based Router
+
+```
+4+ models available
+└─ Train ML classifier on corpus samples
+└─ High accuracy automatic routing
+```
+
+#### Phase 4 (Research): Ensemble
+
+```
+For critical applications / benchmarking
+└─ Optional ensemble mode
+└─ Maximum accuracy
+```
+
+---
+
+### User API (Future)
+
+```python
+from paleobert import PaleoBERT
+
+# Simple API - router handles everything
+extractor = PaleoBERT()  # Loads router + all models
+
+# Example 1: Cambrian paper
+text1 = "Olenellus wheeleri from the Wheeler Formation..."
+result1 = extractor.extract(text1)
+# Router detects: Cambrian → uses PaleoBERT-Cambrian
+# Result: {entities: [...], relations: [...], model_used: "cambrian"}
+
+# Example 2: Mesozoic paper
+text2 = "Tyrannosaurus rex from Hell Creek Formation..."
+result2 = extractor.extract(text2)
+# Router detects: Mesozoic → uses PaleoBERT-Mesozoic-Terrestrial
+# Result: {entities: [...], relations: [...], model_used: "mesozoic-terrestrial"}
+
+# Users don't need to know which model to use!
+```
+
+**Advanced options:**
+
+```python
+# Override router decision
+extractor = PaleoBERT()
+result = extractor.extract(text, force_model="cambrian")
+
+# See routing decision
+result = extractor.extract(text, explain_routing=True)
+# Returns: {
+#   "entities": [...],
+#   "routing": {
+#     "selected_model": "cambrian",
+#     "confidence": 0.95,
+#     "alternatives": {"ordovician": 0.03, "mesozoic": 0.02}
+#   }
+# }
+
+# Use ensemble mode (slow but accurate)
+result = extractor.extract(text, mode="ensemble")
+```
+
+---
+
+### Implementation Priority
+
+**NOT IMMEDIATE** - Focus on PaleoBERT-Cambrian v1.0 first.
+
+**Router needed when:**
+- ✅ 2+ models exist
+- ✅ Users request automatic model selection
+- ✅ Batch processing of mixed-period papers
+
+**Estimated timeline:**
+- After v2.0 (Cambrian + Ordovician both exist)
+- ~1-2 weeks to implement keyword router
+- ~4-6 weeks to implement ML-based router (including training)
+
+---
+
 ## References
 
 - BioBERT: Lee et al. (2020) "BioBERT: a pre-trained biomedical language representation model"
@@ -442,5 +780,5 @@ SciBERT tried to cover "all science":
 
 ---
 
-**Status:** Awaiting stakeholder decision on family vs single model approach
-**Next:** Update OVERVIEW.md based on decision
+**Status:** ✅ Family approach confirmed, PaleoBERT-Cambrian v1.0 in development
+**Next:** Complete vocabulary expansion (120 → 400 tokens)
