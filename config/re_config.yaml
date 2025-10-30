@@ -120,7 +120,7 @@ target_metrics:
 # Miscellaneous
 # ============================================================================
 seed: 42
-dataloader_num_workers: 4
+dataloader_num_workers: 0  # Set to 0 for faster training in WSL2
 
 # Resume from checkpoint (leave null for fresh training)
 resume_from_checkpoint: null
