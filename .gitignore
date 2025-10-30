@@ -62,3 +62,5 @@ checkpoints/
 
 # Outputs
 outputs/
+# Backup files
+*.backup
