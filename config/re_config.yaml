@@ -1,0 +1,132 @@
+# RE (Relation Extraction) Training Configuration for PaleoBERT-Cambrian
+#
+# Fine-tunes DAPT model for Relation Extraction
+# Target relations: occurs_in, found_at, assigned_to, part_of, NO_RELATION
+#
+# Usage:
+#   python scripts/train_re.py --config config/re_config.yaml
+
+# ============================================================================
+# Model Configuration
+# ============================================================================
+model_name_or_path: "checkpoints/paleo-dapt-expanded"
+tokenizer_path: "artifacts/tokenizer_v1"
+
+# Special tokens for entity markers
+special_tokens:
+  - "[SUBJ]"
+  - "[/SUBJ]"
+  - "[OBJ]"
+  - "[/OBJ]"
+
+# ============================================================================
+# Data Configuration
+# ============================================================================
+train_file: "artifacts/re_data/train.jsonl"
+dev_file: "artifacts/re_data/dev.jsonl"
+test_file: "artifacts/re_data/test.jsonl"
+
+# Maximum sequence length
+max_seq_length: 384  # Same as NER
+
+# Number of relation classes
+num_labels: 5
+
+# Label names and mapping
+label_names:
+  - "NO_RELATION"    # 0
+  - "occurs_in"      # 1
+  - "found_at"       # 2
+  - "assigned_to"    # 3
+  - "part_of"        # 4
+
+# ============================================================================
+# Training Configuration (11GB VRAM Optimized)
+# ============================================================================
+output_dir: "checkpoints/paleo-re-v1"
+overwrite_output_dir: true
+
+# Batch configuration
+per_device_train_batch_size: 16
+per_device_eval_batch_size: 32
+gradient_accumulation_steps: 2  # Effective batch = 32
+
+# Memory optimization
+fp16: true
+gradient_checkpointing: false  # Not needed for classification
+
+# Optimization
+learning_rate: 1.0e-5  # Lower than NER (more conservative for RE)
+weight_decay: 0.01
+adam_beta1: 0.9
+adam_beta2: 0.999
+adam_epsilon: 1.0e-8
+max_grad_norm: 1.0
+
+# Learning rate schedule
+lr_scheduler_type: "linear"
+warmup_ratio: 0.1  # 10% warmup
+
+# Training length
+num_train_epochs: 8
+max_steps: -1  # Use num_train_epochs
+
+# Logging
+logging_steps: 100
+logging_strategy: "steps"
+
+# Evaluation
+eval_strategy: "epoch"  # Evaluate after each epoch
+eval_steps: null
+
+# Checkpointing
+save_strategy: "epoch"
+save_steps: null
+save_total_limit: 3
+load_best_model_at_end: true
+metric_for_best_model: "eval_f1_micro"
+greater_is_better: true
+
+# ============================================================================
+# RE-Specific Configuration
+# ============================================================================
+
+# Class weights (to handle imbalance)
+# Format: [NO_RELATION, occurs_in, found_at, assigned_to, part_of]
+# Downweight NO_RELATION (typically 60-70% of data)
+# Upweight rare positive relations
+class_weights: [0.5, 2.0, 2.0, 2.0, 2.5]
+
+# Label smoothing (helps with pattern-based noisy labels)
+label_smoothing_factor: 0.1
+
+# ============================================================================
+# Evaluation Metrics
+# ============================================================================
+# Compute per-relation metrics
+compute_per_relation_metrics: true
+
+# Target metrics (from CLAUDE.md)
+target_metrics:
+  micro_f1: 0.75
+  macro_f1: 0.70
+  accuracy: 0.85
+  f1_occurs_in: 0.80
+  f1_found_at: 0.70
+  f1_assigned_to: 0.70
+  f1_part_of: 0.70
+
+# ============================================================================
+# Miscellaneous
+# ============================================================================
+seed: 42
+dataloader_num_workers: 4
+
+# Resume from checkpoint (leave null for fresh training)
+resume_from_checkpoint: null
+
+# Ignore mismatched sizes (for new special tokens)
+ignore_mismatched_sizes: true
+
+# Push to hub (disable for local training)
+push_to_hub: false
