@@ -1,13 +1,9 @@
 Abadiella
-Abandoned
-Abstracts
 Acadolenus
 Acadoparadoxides
 Acanthocnemis
 Achlysopsis
 Aciculolenus
-Acritarchs
-Additional
 Agnostida
 Agnostoid
 Agnostotes
@@ -30,7 +26,6 @@ Apoplanias
 Arthricocephalus
 Asaphiscus
 Asaphiscus_wheeleri
-Asynchronous
 Austinvillia
 Australia
 Austrosinia
@@ -60,7 +55,6 @@ Callavia
 Calodiscus
 Calymene
 Calymene_blumenbachii
-Cambrian
 Cambrotubulus
 Canada
 Canotaspis
@@ -86,7 +80,6 @@ Combining
 Conopolus
 Controversy
 Cordylodus
-Correlation
 Corresponding
 Corynexochida
 Cove
@@ -129,7 +122,6 @@ Erdoradites
 Erratojincella
 European
 Eurycare
-Evolution
 Facts
 Fimbriaglomerella
 Finecrestia
@@ -177,7 +169,6 @@ Hypagnostus
 Implications
 Inglefieldia
 Integrating
-International
 Irvingella
 Isidrella
 Isotelus
@@ -343,10 +334,8 @@ Schmidtiellus
 Science
 Secretary
 Sectigena
-Section
 Selenosema
 Seriaspis
-Series
 Serrodiscus
 Shanghaiaspis
 Shantungaspis
@@ -375,7 +364,6 @@ Stratigrafiya
 Stratigraphical
 Stratigraphy
 Strenuaeva
-Structure
 Sundberg
 Syspacephalus
 Tabalqueia
@@ -404,16 +392,11 @@ Until
 Usumunaspis
 Utah
 Vermontella
-Vserossiyskaya
 Wangcunian
 Wanhuaia
 Watsonella
 Westergaardia
 Westergaardites
-Whether
-Workshops
 Wujiajiania
-Wuliuan
 Zhuravlev
 Ziboaspis
-Zone
