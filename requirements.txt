@@ -11,9 +11,14 @@ datasets>=2.14.0
 numpy>=1.24.0
 pandas>=2.0.0
 
+# Tokenization
+sentencepiece>=0.2.0
+protobuf>=4.0.0
+
 # Training utilities
 scikit-learn>=1.3.0
 tqdm>=4.65.0
+seqeval>=1.2.2  # For NER evaluation
 
 # Optional: Mixed precision training (for older GPUs like RTX 2080 Ti)
 # apex  # Install separately if needed: https://github.com/NVIDIA/apex
@@ -25,3 +30,6 @@ flake8>=6.0.0
 
 # Utilities
 pyyaml>=6.0
+
+# PDF processing
+pymupdf>=1.23.0
