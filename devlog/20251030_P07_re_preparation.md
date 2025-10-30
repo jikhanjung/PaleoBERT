@@ -1,8 +1,8 @@
 # P07: Relation Extraction (RE) Preparation
 
 **Date:** 2025-10-30
-**Status:** 🔄 In Progress
-**Type:** Plan
+**Status:** ✅ Data Generation Complete | ⏸️ Training Pending DAPT Model
+**Type:** Implementation
 **Dependencies:** NER model (M2), DAPT model (P06)
 
 ---
@@ -184,7 +184,7 @@ Relation Label (0-4)
 - Data format specification
 - Evaluation metrics
 
-**Status:** ⏳ To be implemented
+**Status:** ✅ Complete
 
 ### Task 2: Data Generation Script
 
@@ -215,7 +215,7 @@ Relation Label (0-4)
 }
 ```
 
-**Status:** ⏳ To be implemented
+**Status:** ✅ Complete (Generated 4,653 pairs)
 
 ### Task 3: RE Training Script
 
@@ -242,7 +242,7 @@ model.resize_token_embeddings(len(tokenizer))
 - Overall: Micro-F1, Macro-F1, Accuracy
 - Confusion matrix
 
-**Status:** ⏳ To be implemented
+**Status:** ✅ Complete
 
 ### Task 4: RE Configuration
 
@@ -275,7 +275,86 @@ fp16: true
 class_weights: [0.5, 2.0, 2.0, 2.0, 2.0]  # Downweight NO_RELATION
 ```
 
-**Status:** ⏳ To be implemented
+**Status:** ✅ Complete
+
+---
+
+## Data Generation Results
+
+### Execution Summary
+
+**Date:** 2025-10-30
+**Command:** `python scripts/generate_re_samples.py`
+**Processing Time:** ~2 seconds
+**Input:** 73,492 NER annotated sentences (58,793 train / 7,349 dev / 7,350 test)
+
+### Generated Data Statistics
+
+| Split | NER Examples | Total Pairs | After Balancing | File Size |
+|-------|--------------|-------------|-----------------|-----------|
+| Train | 58,793 | 15,359 | 3,663 | 2.6 MB |
+| Dev | 7,349 | 1,933 | 474 | 361 KB |
+| Test | 7,350 | 1,913 | 516 | 365 KB |
+| **Total** | **73,492** | **19,205** | **4,653** | **3.3 MB** |
+
+### Relation Distribution (After Balancing)
+
+**Train Set:**
+- NO_RELATION: 2,442 (66.7%)
+- found_at: 738 (20.1%)
+- occurs_in: 340 (9.3%)
+- assigned_to: 91 (2.5%)
+- part_of: 52 (1.4%)
+
+**Dev Set:**
+- NO_RELATION: 316 (66.7%)
+- found_at: 88 (18.6%)
+- occurs_in: 56 (11.8%)
+- assigned_to: 11 (2.3%)
+- part_of: 3 (0.6%)
+
+**Test Set:**
+- NO_RELATION: 344 (66.7%)
+- found_at: 102 (19.8%)
+- occurs_in: 44 (8.5%)
+- part_of: 14 (2.7%)
+- assigned_to: 12 (2.3%)
+
+### Quality Notes
+
+✅ **Good:**
+- Target negative ratio achieved: 66.7% NO_RELATION, 33.3% positive
+- Consistent distribution across train/dev/test splits
+- Entity markers correctly inserted
+- Valid type pairs enforced
+
+⚠️ **Limitations:**
+- Pattern-based labeling (50-70% accuracy expected)
+- Some false positives in part_of relation (lithology pairs)
+- Lower coverage for rare relations (assigned_to, part_of)
+
+### Sample Examples
+
+**occurs_in (TAXON → STRAT):**
+```
+Text: "Trilobite fauna of the Kaili_Formation"
+Marked: "[SUBJ] Trilobite [/SUBJ] fauna of the [OBJ] Kaili_Formation [/OBJ]"
+Relation: occurs_in (label_id: 1)
+```
+
+**found_at (TAXON → LOC):**
+```
+Text: "Olenus ... from ... Sweden"
+Marked: "[SUBJ] Olenus [/SUBJ] henningsmoeni ... from ... [OBJ] Sweden [/OBJ]"
+Relation: found_at (label_id: 2)
+```
+
+**assigned_to (STRAT → CHRONO):**
+```
+Text: "Middle Cambrian, Amgaian Stage"
+Marked: "[OBJ] Middle Cambrian [/OBJ], [SUBJ] Amgaian [/SUBJ] Stage"
+Relation: assigned_to (label_id: 3)
+```
 
 ---
 
@@ -377,22 +456,27 @@ class_weights: [0.5, 2.0, 2.0, 2.0, 2.0]  # Downweight NO_RELATION
 
 ## Next Actions
 
-### Immediate
-1. ⏳ Write RE annotation schema document
-2. ⏳ Implement `generate_re_samples.py`
-3. ⏳ Implement `train_re.py`
-4. ⏳ Create `re_config.yaml`
+### Completed ✅
+1. ✅ Write RE annotation schema document (`docs/re_annotation_schema.md`)
+2. ✅ Implement `generate_re_samples.py` (350+ lines, 10+ patterns per relation)
+3. ✅ Implement `train_re.py` (300+ lines, WeightedLossTrainer)
+4. ✅ Create `re_config.yaml` (11GB VRAM optimized)
+5. ✅ Generate RE training data (4,653 pairs total)
+6. ✅ Validate data statistics (66.7% negative, 33.3% positive)
 
-### After Schema Complete
-1. Generate RE training data
-2. Validate data statistics
-3. Test training script with small sample
+### Blocked ⏸️
+**Waiting for DAPT model checkpoint:**
+- Model path: `checkpoints/paleo-dapt-expanded/`
+- Required by: `train_re.py` (loads DAPT for sequence classification)
+- Blocker: DAPT training completed on separate machine, needs transfer
 
 ### After DAPT Available
-1. Run full RE training
-2. Evaluate on test set
-3. Analyze per-relation performance
-4. Document results in completion devlog
+1. Test training script with small sample (10-20 examples)
+2. Run full RE training (8 epochs, ~2-3 hours)
+3. Evaluate on test set
+4. Analyze per-relation performance
+5. Document results in completion devlog
+6. Commit trained model
 
 ---
 
